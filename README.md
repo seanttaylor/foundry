@@ -32,7 +32,7 @@ Foundry avoids the "one-size-fits-none" approach. Instead of locking you into a 
 Run it locally, plug it into your CI/CD, or use it as a mock server—Foundry adapts to your workflow. No SaaS, no outdated templates, just your spec turned into code. Fast.
 
 ```sh
-npx foundry generate --path ./api.yaml --output ./server --lang javascript
+npx foundry build --path ./api.yaml --output ./server --lang javascript
 ```
 
 Build better APIs, faster. **Foundry makes the spec the source of truth—not an afterthought.**
