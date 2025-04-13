@@ -134,7 +134,7 @@ import {
   }
   
   /**
-   * Defines API routes from the OpenAPI spec file
+   * Defines API routes from the OpenAPI specification file
    * @returns {void}
    */
   async function onScaffoldEndpoints() {
@@ -150,6 +150,7 @@ import {
   }
   
   /**
+   * Creates Express route files from a template
    * @param {Object[]} routes - all routes extracted from the OpenAPI specification
    * @param {String} outputDir
    *
@@ -205,6 +206,7 @@ import {
   }
   
   /**
+   * Outputs the Express route definitions as a template literal
    * @param {String} resource - fallback service name (e.g., "widget")
    * @param {Object[]} routes
    * @returns {String}
@@ -284,7 +286,7 @@ import {
   
   /**
    * Creates a list of route metadata for all routes in the API specification
-   * @param {Object} spec - spec file in JSON object form
+   * @param {Object} spec - specifciation file in JSON form
    * @returns {Object[]}
    */
   function generateRoutes(spec) {
@@ -321,7 +323,7 @@ import {
   }
   
   /**
-   * Generates package.json in the output directory
+   * Generates a package.json file in the output directory
    * @param {Object} spec - Parsed OpenAPI specification
    * @param {String} outputDir - Path to output directory
    */
@@ -360,7 +362,7 @@ import {
   }
   
   /**
-   * Creates skeleton server; includes imports to application services
+   * Creates skeleton Express server
    */
   async function onGenerateServerTemplate() {
     try {
@@ -419,9 +421,11 @@ import {
         this.#app.use((err, req, res, next) => {
           const status = 404;
           res.status(status).send({ 
-            count: 0,
-            items: [], 
-            error: 'NOT_FOUND' 
+            type: '/probs/not-found',
+            title: 'The requested resource cannot be found.',
+            status: 404,
+            detail: 'The request cannot be completed be cause the requested resource cannot be found. Ensure the resource exists.',
+            instance: req.path
           });
         });
   
@@ -431,9 +435,11 @@ import {
           
           console.error(\`INTERNAL_ERROR (HTTPService): Exception encountered on route (\${req.path}). See details -> \${error}\`);
           res.status(status).send({ 
-            count: 0,
-            items: [], 
-            error:'INTERNAL_ERROR' 
+            type: '/probs/internal-error',
+            title: 'There was an error',
+            status: 500,
+            detail: 'The request cannot be completed due to a server-side exception. Please try again later.',
+            instance: req.path
           });
         });
   
@@ -549,6 +555,7 @@ import {
   /**
    * Helper to ensure consistent array format
    * @param {String | String[] } value
+   * @returns {Array}
    */
   function ensureArray(value) {
     if (Array.isArray(value)) return value;
@@ -557,9 +564,9 @@ import {
   }
   
   /**
-   * Converts OpenAPI operation parameters to validation config
+   * Converts OpenAPI operation parameters to validation configs
    * @param {Object} operation - OpenAPI operation object
-   * @returns {Object} Validation config for FoundryDefaultValidationProvider
+   * @returns {Object} validation config for FoundryDefaultValidationProvider
    */
   function buildValidationConfig(operation) {
     const config = {
@@ -590,7 +597,6 @@ import {
       }
     });
   
-    // Process request body
     if (operation.requestBody) {
       config.body =
         operation.requestBody.content?.['application/json']?.schema || null;
@@ -643,10 +649,24 @@ import {
   }
   
   /**
-   * Creates user-defined middleware stack
-   * @param {Object} method
-   * @param {Object} route
-   * @returns {String}
+   * Generates a string representation of Express middleware stack by combining
+   * path-level and operation-level middleware from OpenAPI extensions.
+   * The output is used to inject middleware into generated route handlers.
+   * 
+   * @param {Object} method - OpenAPI operation object (e.g., GET/POST definition).
+   * @param {Object} method.xMiddleware - Operation-specific middleware references
+   *   (from `x-middleware` extension). Array of `{ name: string }` objects.
+   * @param {Object} route - OpenAPI path item object containing the operation.
+   * @param {Object} route.xMiddleware - Path-level middleware references
+   *   (from `x-middleware` extension). Array of `{ name: string }` objects.
+   * @returns {string} JavaScript code string representing the middleware stack,
+   *   formatted as an array of middleware references (e.g., `[mw1, mw2]`).
+   * @example
+   * // Returns: '[this.#options.middleware?.audit, this.#options.middleware?.authz]'
+   * buildMiddlewareStack(
+   *   { xMiddleware: [{ name: 'authz' }] },
+   *   { xMiddleware: [{ name: 'audit' }] }
+   * );
    */
   function buildMiddlewareStack(method, route) {
     // Combine path-level and operation-level middleware
@@ -690,6 +710,7 @@ import {
       console.error(
         `INTERNAL_ERROR (Main): Encountered an exception during build run. See details --> ${ex.message}`
       );
+      terminate();
     }
   })();
   
