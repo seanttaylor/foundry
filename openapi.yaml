@@ -1,0 +1,622 @@
+openapi: 3.1.0
+x-stoplight:
+  id: 14mb1wl5g0kz0
+info:
+  title: Airlock Cluster API
+  version: 0.0.1
+  summary: Automatically self-destructing data
+  description: |-
+    # Airlock
+
+    ### The Problem
+    Data privacy is fundamentally flawed. Once data is shared, on the receiving end there are no inherent controls preventing unauthorized copying, forwarding, or storage. Traditional encryption methods secure data in transit and at rest, but they fail to enforce policies on how decrypted data is used, leading to compliance risks and uncontrolled data exposure.
+
+    ### Meet Airlock
+    Airlock introduces a structured data exchange format (`application/vnd.airlock+json`) built around *self-encrypting blobs* (SEBs) that enforce cryptographic policies before decryption. Instead of relying on external governance, Airlock embeds policy verification into the decryption process itself. This ensures that only authorized recipients, under predefined conditions, can access the plaintext data.
+
+    ### Airlock Policy Engine and Key Server
+    Each Airlocked object contains a policy checksum, which a receiving system must validate against a policy engine before requesting the decryption key. The key server or DHT network holds the encryption keys but only releases them if the associated policy conditions—such as access limits, expiration times, or other constraints—are met. This creates a built-in enforcement mechanism for data access without relying on trust in the recipient.
+
+    ### Integration and Use Cases
+    Airlock is designed for seamless integration into M2M communications, APIs, and client-side applications. It can be used in financial transactions, healthcare data exchanges, secure messaging, or even client-side applications that automatically Airlock outbound data to prevent leaks. This ensures that data privacy isn't just a legal checkbox but a cryptographically enforced reality.
+
+    ### Conclusion
+    By combining self-encrypting data with a policy-enforced key release mechanism, Airlock redefines data security beyond simple encryption. It introduces a new paradigm where access control is intrinsic to the data itself, preventing unauthorized usage even after decryption.
+servers:
+  - url: 'http://localhost:3000'
+paths:
+  /nodes:
+    x-service:
+      name: NodeService
+      description: Manages all client nodes attached to an Airlock cluster
+    x-middleware:
+      - name: audit
+        description: Logs all client node access
+      - name: authz
+        description: Authenticates API requests to a cluster node
+    parameters: []
+    put:
+      summary: Join Cluster Node
+      tags: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  message:
+                    type: string
+                  timestamp:
+                    type: string
+                x-examples:
+                  Example 1:
+                    id: 43896f31-ccb8-4a2c-90f6-17e3c1c71743
+                    name: hairy-ape
+                    message: Client (hairy-ape) has joined cluster (sly-fox)
+                    timestamp: '2025-04-03T22:39:42.576Z'
+              examples:
+                Example 1:
+                  value:
+                    id: 43896f31-ccb8-4a2c-90f6-17e3c1c71743
+                    name: hairy-ape
+                    message: Client (hairy-ape) has joined cluster (sly-fox)
+                    timestamp: '2025-04-03T22:39:42.576Z'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                type: object
+                x-examples:
+                  Example 1:
+                    id: 43896f31-ccb8-4a2c-90f6-17e3c1c71743
+                    name: hairy-ape
+                    message: Client (hairy-ape) has left cluster (sly-fox)
+                    timestamp: '2025-04-03T22:39:42.576Z'
+                properties:
+                  message:
+                    type: string
+              examples:
+                Example 1:
+                  value:
+                    message: NOT FOUND
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                x-examples:
+                  Example 1:
+                    message: There was an error
+              examples:
+                Example 1:
+                  value:
+                    message: There was an error
+      operationId: join-cluster-node
+      description: Allows a client node to attach to an existing Airlock cluster node.
+      x-stoplight:
+        id: vf78klec77mpf
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - address
+                - policy
+                - range
+              properties:
+                address:
+                  type: integer
+                policy:
+                  type: string
+                range:
+                  type: array
+                  items:
+                    type: integer
+            x-examples:
+              Example 1:
+                address: 8
+                policy: nodes.policy.timeout_shutdown
+                range:
+                  - 6
+                  - 10
+            examples:
+              Example 1:
+                value:
+                  address: 9
+                  policy: nodes.policy.timeout_shutdown
+                  range:
+                    - 6
+                    - 10
+      parameters: []
+  '/nodes/{id}':
+    delete:
+      summary: Leave Cluster Node
+      operationId: leave-cluster-node
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              x-examples:
+                Example 1:
+                  id: 43896f31-ccb8-4a2c-90f6-17e3c1c71743
+                  name: hairy-ape
+                  message: Client (hairy-ape) has left cluster (sly-fox)
+                  timestamp: '2025-04-03T22:39:42.576Z'
+              examples:
+                Example 1:
+                  value:
+                    id: 43896f31-ccb8-4a2c-90f6-17e3c1c71743
+                    name: hairy-ape
+                    message: Client (hairy-ape) has left cluster (sly-fox)
+                    timestamp: '2025-04-03T22:39:42.576Z'
+        '404':
+          description: Node Not Found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                x-examples:
+                  Example 1:
+                    message: NOT FOUND
+              examples:
+                Example 1:
+                  value:
+                    message: NOT FOUND
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                x-examples:
+                  Example 1:
+                    message: There was an error
+              examples:
+                Example 1:
+                  value:
+                    message: There was an error
+      description: Allows a currently attached client node to detach from an Airlock cluster node.
+    parameters:
+      - schema:
+          type: string
+        name: id
+        in: path
+        required: true
+        description: id of a client node issued by the cluster
+    get:
+      summary: Get Node Status
+      tags: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeInfo'
+              examples:
+                Example 1:
+                  value:
+                    address: 19
+                    name: loud-red-panda
+                    range:
+                      - 17
+                      - 21
+                    clusters:
+                      - 'urn:node:large-shark:91'
+                      - 'urn:node:noisy-woodcock:1'
+                    created: '2025-04-03T22:15:08.695Z'
+                    network: large-shark
+                    policy: nodes.policy.flaky
+                    requestCount: 14
+                    status: nodes.status.online
+                    type: nodes.type.client
+                    urn: 'urn:node:loud-red-panda:19'
+        '404':
+          description: Not Found
+        '500':
+          description: Internal Server Error
+      operationId: get-node-status
+      x-stoplight:
+        id: pspjtl4dn43ic
+  /status:
+    x-service:
+      name: StatusService
+      description: Reports status of Airlock Cluster Nodes
+    get:
+      description: ''
+      x-stoplight:
+        id: m63oi9rb5ipyr
+      summary: Get Cluster Node Status
+      operationId: get-cluster-node-status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterInfo'
+              examples:
+                Example 1:
+                  value:
+                    address: 91
+                    clusters:
+                      - 'urn:node:clever-mantis:1'
+                    created: '2025-04-03T21:57:36.304Z'
+                    histogram:
+                      aggressive-kudu: 21
+                      dangerous-ape: 13
+                      quick-sparrow: 11
+                    lastRequestTimestamp: '2025-04-03T21:58:56.321Z'
+                    name: colorful-lark
+                    requestCount: 9
+                    status: nodes.status.online
+                    type: nodes.type.cluster
+                    urn: 'urn:node:colorful-lark:91'
+                    activeNodes:
+                      count: 2
+                      items:
+                        - 'urn:node:aggressive-kudu:2'
+                        - 'urn:node:quick-sparrow:9'
+                    health:
+                      activity: 0.6666666666666666
+                      estimatedRequestsPerMillis: 0
+                      status: nodes.status.online
+                    size: 3
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                x-examples:
+                  Example 1:
+                    message: There was an error
+    parameters: []
+  /objects:
+    x-service:
+      name: ObjectService
+      description: Manages storage and retrieval of data distributed on client nodes
+    post:
+      summary: Push Object to Cluster
+      tags: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  format:
+                    type: string
+                  key_uri:
+                    type: string
+                  data:
+                    type: string
+                x-examples:
+                  Example 1:
+                    format: SEB-v1
+                    key_uri: 'dht://seb/abc123'
+                    data: AES-256-GCM(encrypted_data)
+              examples:
+                Example 1:
+                  value:
+                    kid: OMxt2kUBdolWSHao2rN
+                    uri: 'dht://vanish.net?kid=-OMxt2kP83aTm6dJoWiH&head=false&self=9&nodes=9,9,2,9,2,2,9,2,9'
+                Example 2:
+                  value:
+                    format: SEB-v1
+                    key_uri: 'dht://seb/abc123'
+                    data: AES-256-GCM(encrypted_data)
+          headers:
+            x-airlock-policy:
+              schema:
+                type: string
+              description: Checksum used to validate and enforce data access policies
+            link:
+              schema:
+                type: string
+              description: Link to Airlock documentation
+            content-type:
+              schema:
+                type: string
+              description: The proprietary Airlock media type
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                x-examples:
+                  Example 1:
+                    message: NOT FOUND
+              examples:
+                Example 1:
+                  value:
+                    message: NOT FOUND
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                x-examples:
+                  Example 1:
+                    message: There was an error
+              examples:
+                Example 1:
+                  value:
+                    message: There was an error
+      operationId: push-object
+      x-stoplight:
+        id: 70t0curhmi5bu
+      description: |-
+        Pushes an encryption key onto the Airlock cluster. 
+        A canonical URI is returned to the client for use retrieving they key later.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: array
+                  x-stoplight:
+                    id: or4x3oo01k7pr
+                  items: {}
+        description: |-
+          Submit an encryption key as a `Uint8Array` to kick off 
+          the key fragmentation process.
+      parameters: []
+    get:
+      summary: Fetch Object from Cluster
+      tags: []
+      responses: {}
+      operationId: fetch-object
+      x-stoplight:
+        id: j4cto07hzgb9p
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: uri
+          required: true
+          description: Canonical URI created by the cluster
+      description: Fetches an encryption key from an Airlock cluster.
+components:
+  schemas:
+    ClusterInfo:
+      type: object
+      properties:
+        address:
+          type: integer
+          example: 91
+        clusters:
+          type: array
+          items:
+            type: string
+          example:
+            - 'urn:node:clever-mantis:1'
+        created:
+          type: string
+          format: date-time
+          example: '2025-04-03T21:57:36.304Z'
+        histogram:
+          type: object
+          additionalProperties:
+            type: integer
+          example:
+            aggressive-kudu: 21
+            dangerous-ape: 13
+            quick-sparrow: 11
+        lastRequestTimestamp:
+          type: string
+          format: date-time
+          example: '2025-04-03T21:58:56.321Z'
+        name:
+          type: string
+          example: colorful-lark
+        requestCount:
+          type: integer
+          example: 9
+        status:
+          type: string
+          example: nodes.status.online
+        type:
+          type: string
+          example: nodes.type.cluster
+        urn:
+          type: string
+          example: 'urn:node:colorful-lark:91'
+        activeNodes:
+          type: object
+          properties:
+            count:
+              type: integer
+              example: 2
+            items:
+              type: array
+              items:
+                type: string
+              example:
+                - 'urn:node:aggressive-kudu:2'
+                - 'urn:node:quick-sparrow:9'
+        health:
+          type: object
+          properties:
+            activity:
+              type: number
+              format: float
+              example: 0.6666666666666666
+            estimatedRequestsPerMillis:
+              type: integer
+              example: 0
+            status:
+              type: string
+              example: nodes.status.online
+        size:
+          type: integer
+          example: 3
+      description: Real-time information returned from a cluster node about its current state.
+      title: ClusterInfo
+      examples:
+        - address: 91
+          clusters:
+            - 'urn:node:clever-mantis:1'
+          created: '2025-04-03T21:57:36.304Z'
+          histogram:
+            aggressive-kudu: 21
+            dangerous-ape: 13
+            quick-sparrow: 11
+          lastRequestTimestamp: '2025-04-03T21:58:56.321Z'
+          name: colorful-lark
+          requestCount: 9
+          status: nodes.status.online
+          type: nodes.type.cluster
+          urn: 'urn:node:colorful-lark:91'
+          activeNodes:
+            count: 2
+            items:
+              - 'urn:node:aggressive-kudu:2'
+              - 'urn:node:quick-sparrow:9'
+          health:
+            activity: 0.6666666666666666
+            estimatedRequestsPerMillis: 0
+            status: nodes.status.online
+          size: 3
+    NodeInfo:
+      type: object
+      properties:
+        address:
+          type: integer
+          x-stoplight:
+            id: e00a71c9986c4
+          description: The unique address identifier for the node.
+          example: 19
+        name:
+          type: string
+          x-stoplight:
+            id: 8f6e464b7e876
+          description: The name of the node.
+          example: loud-red-panda
+        range:
+          type: array
+          x-stoplight:
+            id: c2e056cb93eea
+          items:
+            type: integer
+          description: The range of addresses this node covers.
+          example:
+            - 17
+            - 21
+        clusters:
+          type: array
+          x-stoplight:
+            id: 1f89ad3edcc6e
+          items:
+            type: string
+          description: A list of cluster URNs the node is associated with.
+          example:
+            - 'urn:node:large-shark:91'
+            - 'urn:node:noisy-woodcock:1'
+        created:
+          type: string
+          x-stoplight:
+            id: b78bdcc87d4b2
+          format: date-time
+          description: Timestamp when the node was created.
+          example: '2025-04-03T22:15:08.695Z'
+        network:
+          type: string
+          x-stoplight:
+            id: ca13071ed84cf
+          description: The name of the network the node belongs to.
+          example: large-shark
+        policy:
+          type: string
+          x-stoplight:
+            id: 82d2c32f3d7f2
+          description: The policy governing the node's behavior.
+          example: nodes.policy.flaky
+        requestCount:
+          type: integer
+          description: The number of requests handled by the node.
+          example: 14
+        status:
+          type: string
+          description: The current status of the node.
+          example: nodes.status.online
+        type:
+          type: string
+          description: 'The type of the node (e.g., client, cluster).'
+          example: nodes.type.client
+        urn:
+          type: string
+          description: The unique resource name (URN) identifying the node.
+          example: 'urn:node:loud-red-panda:19'
+  requestBodies:
+    Node:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              address:
+                type: integer
+              policy:
+                type: string
+              range:
+                type: array
+                items:
+                  type: integer
+            x-examples:
+              Example 1:
+                address: 8
+                policy: nodes.policy.timeout_shutdown
+                range:
+                  - 6
+                  - 10
+          examples:
+            Example 1:
+              value:
+                address: 9
+                policy: nodes.policy.timeout_shutdown
+                range:
+                  - 6
+                  - 10
+  securitySchemes:
+    simpleApiKey:
+      name: apiKey
+      type: apiKey
+      in: query
+      description: Simple API key for accessing most protected API resources
+security:
+  - simpleApiKey: []
