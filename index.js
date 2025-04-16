@@ -23,6 +23,10 @@ import {
       description:
         'Launches an interactive prompt for generating code from a provided OpenAPI specification',
     },
+    bedrock: {
+      name: 'bedrock',
+      description: 'Generates SQL schemas in a specified dialect for all data types defined in the `components` section of an OpenAPI spec file'
+    },
     default: {
       name: 'default',
       options: {
@@ -48,6 +52,28 @@ import {
             '-a, --autostart <boolean>',
             'Indicates whether the generated service should be started automatically on build completion',
           ],
+        },
+      },
+    },
+    bedrock_build: {
+      name: 'bedrock',
+      options: {
+        output: {
+          flag: ['-o, --output <dir>', 'Output directory', './generated'],
+        },
+        path: {
+          flag: [
+            '-p, --path <file>',
+            'Path to a valid OpenAPI specification file (.yaml or .json)',
+          ],
+        },
+        sql: {
+          flag: [
+            '-s, --sql <string>',
+            'Dialect of the generated SQL tables',
+            'SQLite',
+          ],
+          choices: ['sqlite', 'postgres', 'mysql', 'mongodb' ],
         },
       },
     },
@@ -88,6 +114,61 @@ import {
     autostart: {
       message: 'Should the service start once build completes?',
     },
+    sql: {
+      message: 'In which SQL dialect should components schemas in the spec file be generated?',
+      options: [
+        { value: 'sqlite', label: 'SQLite' },
+        { value: 'postgres', label: 'Postgres' },
+        { value: 'mysql', label: 'MySQL' },
+        { value: 'mongo', label: 'MonogDB' },
+        { value: 'none', label: 'None. Do not generate SQL schemas' },
+      ],
+    }
+  };
+
+  const SQL_TYPE_MAP = {
+    string: {
+      sqlite: (format) => {
+        switch(format) {
+          case 'date-time': return 'TEXT'; // ISO8601 strings
+          case 'date': return 'TEXT';      // YYYY-MM-DD
+          case 'time': return 'TEXT';      // HH:MM:SS
+          case 'uuid': return 'TEXT';      // UUIDs as text
+          case 'email': return 'TEXT';     // With separate CHECK constraint
+          default: return 'TEXT';
+        }
+      },
+      postgres: (format) => {
+        switch(format) {
+          case 'date-time': return 'TIMESTAMP';
+          case 'date': return 'DATE';
+          case 'time': return 'TIME';
+          case 'uuid': return 'UUID';
+          case 'email': return 'TEXT'; // Postgres doesn't have email type
+          default: return 'TEXT';
+        }
+      }
+    },
+    number: {
+      sqlite: () => 'REAL',  // SQLite doesn't distinguish float/integer
+      postgres: (format) => format === 'integer' ? 'INTEGER' : 'NUMERIC'
+    },
+    integer: {
+      sqlite: () => 'INTEGER',
+      postgres: () => 'INTEGER'
+    },
+    boolean: {
+      sqlite: () => 'INTEGER(1)',  // 0/1 storage
+      postgres: () => 'BOOLEAN'
+    },
+    array: {
+      sqlite: () => 'TEXT',  // JSON-serialized
+      postgres: () => 'JSONB'
+    },
+    object: {
+      sqlite: () => 'TEXT',  // JSON-serialized
+      postgres: () => 'JSONB'
+    }
   };
   
   /**
@@ -473,10 +554,57 @@ import {
   }
   
   /**
-   * Builds JSON Schema specifications from the `Models` object in an OpenAPI spec file
+   * Builds SQL tables based on specific data types defined on the `components` property in the spec file
+   * @param {Object} options
+   * @param {String} options.sql - indicates which SQL dialect to prepare database tables in
+   * @param {String} options.path - path of the OpenAPI specification or JSON Schema file
+   * @param {String} options.output - directory to save SQL schemas
+
    * @returns {void}
    */
-  async function onBuildModels() {}
+  async function onBuildModels(options) {
+    try {
+       // 1. Load or reuse the spec
+      if (!workflow.spec) {
+        const content = fs.readFileSync(options.path, 'utf8');
+        workflow.spec = options.path.endsWith('.yaml') 
+          ? YAML.parse(content) 
+          : JSON.parse(content);
+        
+        if (!workflow.spec?.components?.schemas) {
+          throw new Error('No `components.schemas` found in specification');
+        }
+
+      }
+
+      // 2. Prepare output directory
+      const outputDir = path.join(options.output, 'db');
+      fs.mkdirSync(outputDir, { recursive: true });
+      fs.mkdirSync(path.join(outputDir, 'migrations'), { recursive: true });
+
+      // 3. Generate SQL schema
+      const { schemaSQL, migrations } = generateSQLSchema({
+        schemas: workflow.spec.components.schemas,
+        dialect: options.sql
+      });
+
+      // 4. Write output files
+      fs.writeFileSync(path.join(outputDir, 'schema.sql'), schemaSQL);
+      
+      if (migrations.length > 0) {
+        const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+        migrations.forEach((migration, i) => {
+          const migrationName = `${timestamp}_${String(i).padStart(2, '0')}_${migration.name}.sql`;
+          fs.writeFileSync(path.join(outputDir, 'migrations', migrationName), migration.sql);
+        });
+      }
+
+      log.success(`Generated SQL schema (${options.sql}) in ${outputDir}`);
+
+    } catch(ex) {
+      console.error(`INTERNAL_ERROR (Foundry.Bedrock): Encountered exception while building SQL tables. See details -> ${ex.message}`);
+    }
+  }
   
   /**
    * Fires after the `foundry build` command is run; starts
@@ -489,6 +617,7 @@ import {
     const specPath = await text(prompts.path);
     const outputDir = await text(prompts.ouput);
     const language = await select(prompts.lang);
+    const buildSQL = await select(prompts.sql); 
     const autostart = await confirm(prompts.autostart);
   
     // const s = spinner();
@@ -510,6 +639,10 @@ import {
       {
         title: `Generating server template...`,
         task: onGenerateServerTemplate.bind(null, outputDir),
+      },
+      {
+        title: `Validating SQL Configuration...`,
+        task: onBuildModels.bind(null, { sql: buildSQL }),
       },
       {
         title: `Exporting to output directory`,
@@ -605,49 +738,152 @@ import {
     return config;
   }
   
+  /******** FOUNDRY (BEDROCK) UTITLITIES ********/
+
   /**
-   * Collects all unique services and middlewares with descriptions
-   * @param {Object[]} routes - Processed route definitions
-   * @returns {Array<{path: string, description: string}>} - JSDoc entries
+   * Creates a SQL table definition from a list of schema objects extracted from an OpenAPI spec's `components.schema` property or a JSON Schema document
+   * @param {Object} options
+   * @param {Object[]} options.schemas - list of schema definitions to be converted to SQL tables
+   * @param {String} options.dialect - the SQL dialect to define the tables in
+   * @returns 
    */
-  function collectDependencies(routes) {
-    const dependencies = new Map(); // Using Map to avoid duplicates
-  
-    routes.forEach((route) => {
-      // 1. Process path-level x-service
-      if (route.xService?.name && route.xService?.description) {
-        dependencies.set(`options.${route.xService.name}`, {
-          path: `options.${route.xService.name}`,
-          description: route.xService.description,
-        });
-      }
-  
-      // 2. Process path-level x-middleware
-      (route.xMiddleware || []).forEach((mw) => {
-        if (mw.name && mw.description) {
-          dependencies.set(`options.middleware.${mw.name}`, {
-            path: `options.middleware.${mw.name}`,
-            description: mw.description,
+  function generateSQLSchema({ schemas, dialect }) {
+    const tables = [];
+    const migrations = [];
+    
+    // Process each schema component
+    Object.entries(schemas).forEach(([name, definition]) => {
+      if (definition.type === 'object') {
+        const { tableSQL, relationSQL } = JSONToSQL({ name, definition, dialect });
+        tables.push(tableSQL);
+        
+        if (relationSQL) {
+          migrations.push({
+            name: `add_${name}_relations`,
+            sql: relationSQL
           });
         }
-      });
-  
-      // 3. Process operation-level x-middleware
-      route.methods.forEach((method) => {
-        (method.xMiddleware || []).forEach((mw) => {
-          if (mw.name && mw.description) {
-            dependencies.set(`options.middleware.${mw.name}`, {
-              path: `options.middleware.${mw.name}`,
-              description: mw.description,
-            });
-          }
-        });
-      });
+      }
     });
-  
-    return Array.from(dependencies.values());
+
+    return {
+      schemaSQL: tables.join('\n\n'),
+      migrations
+    };
   }
+
+  /**
+   * @param {Object} options
+   * @param {String} options.name
+   * @param {Object} options.definition
+   * @param {String} options.dialect
+   */
+  function JSONToSQL({ name, definition, dialect }) {
+    const columns = [];
+    const constraints = [];
+    let relations = null;
+
+    // Process properties
+    Object.entries(definition.properties || {}).forEach(([propName, propDef]) => {
+      if (propDef.$ref) {
+        // Handle relations
+        const refTable = propDef.$ref.split('/').pop();
+        columns.push(`${propName} TEXT`);
+        constraints.push(`FOREIGN KEY (${propName}) REFERENCES ${refTable}(id)`);
+      } 
+      else if (propDef.type === 'array' && propDef.items?.$ref) {
+        // Handle many-to-many (defer to migrations)
+        const refTable = propDef.items.$ref.split('/').pop();
+        relations = `CREATE TABLE ${name}_${refTable} (
+          ${name}_id TEXT,
+          ${refTable}_id TEXT,
+          PRIMARY KEY (${name}_id, ${refTable}_id),
+          FOREIGN KEY (${name}_id) REFERENCES ${name}(id),
+          FOREIGN KEY (${refTable}_id) REFERENCES ${refTable}(id)
+        `;
+      }
+      else {
+        // Handle regular columns
+        const columnDef = JSONPropertyToSQLColumn({
+          name: propName, 
+          definition: propDef, 
+          dialect
+        });
+        columns.push(columnDef);
+      }
+    });
+
+    // Build final SQL
+    const tableSQL = `CREATE TABLE ${name.toLowerCase()} (
+      ${columns.join(',\n    ')}
+      ${constraints.length > 0 ? ',\n    ' + constraints.join(',\n    ') : ''}
+    )`;
+
+    return { tableSQL, relationSQL: relations };
+  }
+
+  /**
+   * @param {Object} options
+   * @param {String} options.name
+   * @param {Object} options.definition
+   * @param {String} options.dialect
+   * @returns {String}
+   */
+  function JSONPropertyToSQLColumn({ name, definition, dialect }) {
+    const base = `${name} ${getSQLType(definition.type, dialect)}`;
+    const constraints = [];
+    
+    if (definition.required) constraints.push('NOT NULL');
+    if (definition.default !== undefined) constraints.push(`DEFAULT ${formatDefault(definition.default)}`);
+    if (definition.enum) constraints.push(`CHECK (${name} IN (${definition.enum.map(e => `'${e}'`).join(',')}))`);
   
+    return base + (constraints.length > 0 ? ' ' + constraints.join(' ') : '');
+  }
+
+  /**
+   * Maps JSON Schema types to SQLite column types with dialect-aware conversions
+   * @param {String} type - JSON Schema type
+   * @param {String} dialect - SQL dialect ('sqlite'|'postgres')
+   * @returns {String} SQL column type
+   */
+  function getSQLType(type, dialect = 'sqlite') {
+
+    const baseType = SQL_TYPE_MAP[type]?.[dialect] || (() => 'TEXT');
+    return baseType();
+  }
+
+  /**
+   * Formats default values for SQL insertion based on type
+   * @param {*} value - Default value from schema
+   * @returns {String} SQL-safe default value representation
+   */
+  function formatDefault(value) {
+    if (value === null) return 'NULL';
+    
+    switch(typeof value) {
+      case 'string':
+        return `'${value.replace(/'/g, "''")}'`; // Escape single quotes
+      
+      case 'number':
+        return value.toString();
+      
+      case 'boolean':
+        return value ? '1' : '0'; // SQLite-friendly boolean
+      
+      case 'object':
+        if (Array.isArray(value)) {
+          return `'${JSON.stringify(value)}'`; // Serialize arrays
+        }
+        if (value instanceof Date) {
+          return `'${value.toISOString()}'`; // ISO8601 dates
+        }
+        return `'${JSON.stringify(value)}'`; // Serialize objects
+      
+      default:
+        return `'${String(value)}'`; // Fallback string conversion
+    }
+  }
+    
   /**
    * Generates a string representation of Express middleware stack by combining
    * path-level and operation-level middleware from OpenAPI extensions.
@@ -684,6 +920,7 @@ import {
     try {
       /******** INTERACTIVE PATH ********/
       const IN_INTERACTIVE_MODE = process.argv[2] === 'build';
+      const IN_BEDROCK_AUTOMATED_MODE = process.argv[2] === 'bedrock';
   
       if (IN_INTERACTIVE_MODE) {
         program
@@ -695,8 +932,27 @@ import {
         program.parse();
         return;
       }
-  
-      /******** AUTOMATED DEFAULT PATH ********/
+
+      /******** FOUNDRY BEDROCK AUTOMATED DEFAULT PATH ********/
+      if (IN_BEDROCK_AUTOMATED_MODE) {
+        program
+        .version(Config.version)
+        .command(commands.bedrock.name)
+        .description(commands.bedrock.description)
+        .requiredOption(...commands.bedrock_build.options.path.flag)
+        .addOption(
+          new Option(...commands.bedrock_build.options.sql.flag).choices(
+            commands.bedrock_build.options.sql.choices
+          )
+        )
+        .option(...commands.bedrock_build.options.output.flag)
+        .action(onBuildModels);
+        
+        program.parse();
+        return;
+      }
+
+      /******** FOUNDRY CORE AUTOMATED DEFAULT PATH ********/
       program
         .requiredOption(...commands.default.options.path.flag)
         .addOption(
