@@ -779,47 +779,74 @@ import {
    * @param {String} options.dialect
    */
   function JSONToSQL({ name, definition, dialect }) {
+    const isJunctionTable = name.includes('_') && 
+      Object.values(definition.properties || {}).some(
+        prop => prop.type === 'array' && prop.items?.$ref
+      );
+  
     const columns = [];
     const constraints = [];
     let relations = null;
+    // Generate example row if any properties have examples
+    let exampleRow = '';
+  
+    // Add standard columns for non-junction tables
+    if (!isJunctionTable) {
+      const exampleSQL = generateExampleRow(name, definition);
 
-    // Process properties
+      if (exampleSQL) {
+        exampleRow = `\n\n-- EXAMPLE FROM OpenAPI SPECIFICATION\n${exampleSQL}`;
+      }
+
+      columns.push(
+        // Keep the full UUID generation as DEFAULT
+      `_id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))))`,
+        
+        // Keep timestamp generation
+      `created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`
+      );
+    }
+  
+    // Process schema properties
     Object.entries(definition.properties || {}).forEach(([propName, propDef]) => {
+      // Skip reserved columns
+      if (['_id', 'created_at'].includes(propName) && !isJunctionTable) {
+        return;
+      }
+
+      // Add description as comment above the column
+      if (propDef.description) {
+        columns.push(`-- ${propDef.description.replace(/\n/g, ' ')}`);
+      }
+
       if (propDef.$ref) {
-        // Handle relations
         const refTable = propDef.$ref.split('/').pop();
         columns.push(`${propName} TEXT`);
-        constraints.push(`FOREIGN KEY (${propName}) REFERENCES ${refTable}(id)`);
-      } 
-      else if (propDef.type === 'array' && propDef.items?.$ref) {
-        // Handle many-to-many (defer to migrations)
+        constraints.push(`FOREIGN KEY (${propName}) REFERENCES ${refTable}(_id)`);
+      } else if (propDef.type === 'array' && propDef.items?.$ref) {
         const refTable = propDef.items.$ref.split('/').pop();
         relations = `CREATE TABLE ${name}_${refTable} (
-          ${name}_id TEXT,
-          ${refTable}_id TEXT,
-          PRIMARY KEY (${name}_id, ${refTable}_id),
-          FOREIGN KEY (${name}_id) REFERENCES ${name}(id),
-          FOREIGN KEY (${refTable}_id) REFERENCES ${refTable}(id)
-        `;
-      }
-      else {
-        // Handle regular columns
-        const columnDef = JSONPropertyToSQLColumn({
-          name: propName, 
-          definition: propDef, 
-          dialect
-        });
+        ${name}_id TEXT REFERENCES ${name}(_id),
+        ${refTable}_id TEXT REFERENCES ${refTable}(_id),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        PRIMARY KEY (${name}_id, ${refTable}_id)
+        )`;
+      } else {
+        // Handle regular properties
+        const columnDef = `${propName} ${getSQLType(propDef.type, dialect, propDef.format)}` +
+          (propDef.required ? ' NOT NULL' : '') +
+          (propDef.default !== undefined ? ` DEFAULT ${formatDefault(propDef.default)}` : '');
         columns.push(columnDef);
       }
     });
-
-    // Build final SQL
-    const tableSQL = `CREATE TABLE ${name.toLowerCase()} (
+  
+    return {
+      tableSQL: `CREATE TABLE ${name.toLowerCase()} (
       ${columns.join(',\n    ')}
-      ${constraints.length > 0 ? ',\n    ' + constraints.join(',\n    ') : ''}
-    )`;
-
-    return { tableSQL, relationSQL: relations };
+      ${constraints.length > 0 ? ',\n      ' + constraints.join(',\n   ') : ''}
+    ) ${exampleRow}`,
+      relationSQL: relations
+    };
   }
 
   /**
@@ -838,6 +865,66 @@ import {
     if (definition.enum) constraints.push(`CHECK (${name} IN (${definition.enum.map(e => `'${e}'`).join(',')}))`);
   
     return base + (constraints.length > 0 ? ' ' + constraints.join(' ') : '');
+  }
+
+  /**
+   * Generates an example INSERT statement from OpenAPI examples
+   * @param {string} tableName 
+   * @param {object} definition 
+   * @returns {string|null} SQL INSERT statement or null if no examples
+   */
+  function generateExampleRow(tableName, definition) {
+    const exampleValues = {};
+    let hasExamples = false;
+
+    // Process properties to collect examples
+    Object.entries(definition.properties || {}).forEach(([propName, propDef]) => {
+      if (['_id', 'created_at'].includes(propName)) return;
+      
+      const example = propDef.example ?? propDef.items?.example;
+      if (example !== undefined) {
+        exampleValues[propName] = normalizeExampleValue(example, propDef);
+        hasExamples = true;
+      }
+    });
+
+    if (!hasExamples) return null;
+
+    const columns = Object.keys(exampleValues);
+    const values = columns.map(propName => 
+      formatSQLValue(exampleValues[propName])
+    );
+
+    return `INSERT INTO ${tableName.toLowerCase()} (${columns.join(', ')})
+  VALUES (${values.join(', ')});`;
+  }
+
+  /**
+   * Normalizes example values based on their schema definition
+   */
+  function normalizeExampleValue(value, propDef) {
+    // Handle object examples
+    if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
+      return JSON.stringify(value);
+    }
+    
+    // Preserve arrays (they'll be stringified later)
+    if (Array.isArray(value)) {
+      return value;
+    }
+    
+    // All other values pass through
+    return value;
+  }
+
+  /**
+   * Formats values for safe SQL insertion
+   */
+  function formatSQLValue(value) {
+    if (Array.isArray(value) || typeof value === 'object') {
+      return `'${JSON.stringify(value).replace(/'/g, "''")}'`;
+    }
+    return `'${String(value).replace(/'/g, "''")}'`;
   }
 
   /**
