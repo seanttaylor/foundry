@@ -1,2 +1,6 @@
 node_modules
+
+/******** FOUNDRY *******/
 generated
+database.db-shm
+database.db-wal
