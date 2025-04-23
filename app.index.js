@@ -1,5 +1,6 @@
 import { FoundryServer } from './generated/server/index.js';
 import { Database } from './generated/db/init.js';
+import { ClusterInfo } from './generated/models/ClusterInfo.js';
 
 (async function() {
 
@@ -57,9 +58,13 @@ import { Database } from './generated/db/init.js';
   };
 
   try {
-    const statment = Database.prepare('SELECT * FROM clusterinfo');
-    const result = statment.all();
-    console.log({ result });
+    const id = 'f50e8ec2-2270-43b8-88ac-c19e31860d3b';
+    const db = await Database.init();
+    const cluster = await ClusterInfo.findById(id);
+    console.log({ cluster });
+    //const statment = db.prepare('SELECT * FROM clusterinfo');
+    //const result = statment.all();
+    //console.log({ result });
 
     const server = new FoundryServer(options);
     server.start();

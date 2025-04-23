@@ -5,6 +5,7 @@ import fs from 'fs';
 const sqlFilePath = './generated/db/schema.sql';
 
 export class SQLiteDatasource {
+  // TODO: Refactor constructor to take pre-initialized database instance
   constructor(dbPath = 'database.db') {
     this._db = new Database(dbPath);
     this._db.pragma('journal_mode = WAL');

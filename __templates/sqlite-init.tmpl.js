@@ -11,13 +11,25 @@ import fs from 'fs';
 const sqlFilePath = './generated/db/schema.sql';
 const databaseFilePath = 'database.db';
 
+/**
+ * 
+ * @param {String} databaseFilePath
+ * @param {String} sqlFilePath
+ * @returns {Object}
+ */  
 export const Database = ((databaseFilePath, sqlFilePath) => {
   return {
+    /**
+     * Initializes a SQLite database implementation
+     * @returns {Object} database reference
+    */ 
     async init() {
-       try {
+      try {
         const db = new Sqlite3Database(databaseFilePath);    
         const sql = fs.readFileSync(sqlFilePath, 'utf-8');
-        
+      
+        db.pragma('journal_mode = WAL');
+        db.pragma('foreign_keys = ON');
         db.exec(sql);
 
         return db;

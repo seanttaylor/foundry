@@ -17,6 +17,7 @@ import {
   /******** TEMPLATES ********/
   import { BaseModelTmpl } from './__templates/base-model.tmpl.js';
   import { SQLiteInitTmpl } from './__templates/sqlite-init.tmpl.js';
+  import { ModelTmpl } from './__templates/model.tmpl.js';
 
   const Config = {
     version: '0.0.1',
@@ -188,7 +189,14 @@ import {
     str.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
   
   const toPascalCase = (str) => str.charAt(0).toUpperCase() + str.slice(1);
-  
+
+  function toSnakeCase(str) {
+    return str
+      .replace(/([a-z])([A-Z])/g, '$1_$2')  // camelCase to camel_case
+      .replace(/\s+/g, '_')                  // spaces to underscores
+      .toLowerCase();                         // enforce lowercase
+  }
+    
   /**
    * @param {String} filePath - path to the OpenAPI specification
    * @param {String} outputDir - path to the output directory for any generated files
@@ -601,7 +609,47 @@ import {
         dialect: options.sql
       });
 
-      // 4. Write output files
+      // 4. Create Models 
+      Object.entries(workflow.spec.components.schemas).forEach(([name, schema]) => {
+
+        const className = toPascalCase(name);
+        const tableName = toSnakeCase(name);
+    
+        // Generate property accessors with JSDoc
+        const accessors = Object.entries(schema.properties || {})
+          .map(([prop, def]) => {
+            const typeMap = {
+              string: 'string',
+              number: 'number',
+              integer: 'number',
+              boolean: 'boolean',
+              array: 'Array',
+              object: 'Object'
+            };
+            
+            const jsType = typeMap[def.type] || def.type || 'any';
+            const description = def.description ? ` - ${def.description}` : '';
+    
+            return `
+    /**
+     * @type {${jsType}}${description}
+     */
+    get ${prop}() {
+      return this.__data.${prop};
+    }
+
+    set ${prop}(value) {
+      this.__data.${prop} = value;
+    }`;
+          })
+          .join('\n');
+    
+        const modelTemplate = ModelTmpl.getTemplate({ className, tableName, accessors});
+    
+        fs.writeFileSync(path.join(modelDir, `${className}.js`), modelTemplate);
+      });
+
+      // 5. Write output files
       const templateFactory = Config.datasources[options.sql];
       fs.writeFileSync(path.join(outputDir, 'schema.sql'), schemaSQL);
       
