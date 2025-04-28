@@ -661,7 +661,7 @@ import {
         });
       }
 
-      fs.writeFileSync(path.join(outputDir, 'init.js'), templateFactory.getTemplate());
+      fs.writeFileSync(path.join(outputDir, 'init.js'), templateFactory.getTemplate({ datasource: options.sql }));
       fs.writeFileSync(path.join(modelDir, 'BaseModel.js'), BaseModelTmpl.getTemplate({ datasource: options.sql }));
 
       log.success(`Generated SQL schema (${options.sql}) in ${outputDir}`);
@@ -906,7 +906,7 @@ import {
     });
   
     return {
-      tableSQL: `CREATE TABLE IF NOT EXISTS ${name.toLowerCase()} (
+      tableSQL: `CREATE TABLE IF NOT EXISTS ${toSnakeCase(name)} (
       ${columns.join(',\n    ')}
       ${constraints.length > 0 ? ',\n      ' + constraints.join(',\n   ') : ''}
     ); ${exampleRow}`,
@@ -960,7 +960,7 @@ import {
       formatSQLValue(exampleValues[propName])
     );
 
-    return `INSERT INTO ${tableName.toLowerCase()} (${columns.join(', ')})
+    return `INSERT INTO ${toSnakeCase(tableName)} (${columns.join(', ')})
   VALUES (${values.join(', ')});`;
   }
 

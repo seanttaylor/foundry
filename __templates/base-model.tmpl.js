@@ -18,6 +18,8 @@ export class BaseModel {
     this.__db = db;
     Object.assign(this.__data, attributes);
   }
+  
+  static __db = db;
 
   static get table() {
     throw new Error('Must implement table getter');

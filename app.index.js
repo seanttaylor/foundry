@@ -1,19 +1,12 @@
 import { FoundryServer } from './generated/server/index.js';
-import { Database } from './generated/db/init.js';
 import { ClusterInfo } from './generated/models/ClusterInfo.js';
 
 (async function() {
-
-  class NodeService {
-    constructor() {}
-  }
-
   /**
    * @typedef {Object} FoundryOptions
    * @property {MiddlewareOptions} [middleware] - Custom middleware to enhance generated routes
    */
   const options = {
-    NodeService: new NodeService(),
     middleware: {
       audit: (req, res, next) => {
         console.log(`Audting... ${req.path}`);
@@ -58,13 +51,14 @@ import { ClusterInfo } from './generated/models/ClusterInfo.js';
   };
 
   try {
-    const id = 'f50e8ec2-2270-43b8-88ac-c19e31860d3b';
-    const db = await Database.init();
+    const id = '1b35ac07-a24b-4ace-a149-22c57af181d9';
     const cluster = await ClusterInfo.findById(id);
+
     console.log({ cluster });
-    //const statment = db.prepare('SELECT * FROM clusterinfo');
-    //const result = statment.all();
-    //console.log({ result });
+
+    const myCluster = new ClusterInfo();
+
+    await myCluster.put();
 
     const server = new FoundryServer(options);
     server.start();

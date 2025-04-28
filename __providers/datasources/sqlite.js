@@ -1,18 +1,8 @@
-// __providers/datasources/sqlite.js
-import Database from 'better-sqlite3';
-import fs from 'fs';
-
 const sqlFilePath = './generated/db/schema.sql';
 
-export class SQLiteDatasource {
-  // TODO: Refactor constructor to take pre-initialized database instance
-  constructor(dbPath = 'database.db') {
-    this._db = new Database(dbPath);
-    this._db.pragma('journal_mode = WAL');
-    this._db.pragma('foreign_keys = ON');
-
-    const sql = fs.readFileSync(sqlFilePath, 'utf-8');
-    this._db.exec(sql);
+export default class SQLiteDatasource {
+  constructor(db) {
+    this.__db = db;
   }
 
   /**
@@ -33,7 +23,7 @@ export class SQLiteDatasource {
       insert: async (document) => {
         const id = crypto.randomUUID();
         const columns = Object.keys(document);
-        const stmt = this._db.prepare(`
+        const stmt = this.__db.prepare(`
           INSERT INTO ${tableName} (_id, ${columns.join(', ')})
           VALUES (?, ${columns.map(() => '?').join(', ')})
         `);
@@ -49,14 +39,14 @@ export class SQLiteDatasource {
         if (documents.length === 0) return [];
         
         const columns = Object.keys(documents[0]);
-        const stmt = this._db.prepare(`
+        const stmt = this.__db.prepare(`
           INSERT INTO ${tableName} (_id, ${columns.join(', ')})
           VALUES (?, ${columns.map(() => '?').join(', ')})
         `);
 
         const ids = documents.map(() => crypto.randomUUID());
         
-        this._db.transaction(() => {
+        this.__db.transaction(() => {
           documents.forEach((doc, i) => {
             stmt.run(ids[i], ...Object.values(doc));
           });
@@ -70,7 +60,7 @@ export class SQLiteDatasource {
        * @returns {Object}
        */
       getById: async (id) => {
-        return this._db.prepare(`
+        return this.__db.prepare(`
           SELECT * FROM ${tableName} 
           WHERE _id = ?
         `).get(id);
@@ -83,7 +73,7 @@ export class SQLiteDatasource {
        */
       update: async (id, updates) => {
         const columns = Object.keys(updates);
-        const stmt = this._db.prepare(`
+        const stmt = this.__db.prepare(`
           UPDATE ${tableName}
           SET ${columns.map(c => `${c} = ?`).join(', ')}
           WHERE _id = ?
@@ -96,7 +86,7 @@ export class SQLiteDatasource {
        * @returns {void}
        */
       delete: async (id) => {
-        this._db.prepare(`
+        this.__db.prepare(`
           DELETE FROM ${tableName} 
           WHERE _id = ?
         `).run(id);
@@ -115,7 +105,7 @@ export class SQLiteDatasource {
        * @returns 
        */
       sql: (query, params = []) => {
-        const stmt = this._db.prepare(query);
+        const stmt = this.__db.prepare(query);
         return query.trim().toUpperCase().startsWith('SELECT')
           ? stmt.all(params)
           : stmt.run(params);
